@@ -18,3 +18,22 @@ log_level = "INFO"
 [paths]
 # Data directory for voices, outputs, and models
 data_dir = "data"
+
+[video_voice_clone]
+# Maximum upload size for videos (MB)
+max_upload_size_mb = 100
+
+# Maximum video duration (seconds)
+max_video_duration_sec = 300
+
+# Minimum audio duration for voice cloning (seconds)
+min_audio_duration_sec = 3
+
+# Maximum audio duration for voice cloning (seconds)
+max_audio_duration_sec = 30
+
+# Target sample rate for extracted audio (Hz)
+target_sample_rate = 24000
+
+# Target number of channels (1 = mono, 2 = stereo)
+target_channels = 1

@@ -339,6 +339,119 @@ with gr.Blocks(css=STARSILK_CSS, title="DexTalker") as demo:
                 voice_manifest = gr.JSON(value=_load_voice_choices(), label="Available Voices")
                 btn_refresh_voices = gr.Button("🔄 Refresh Voices")
 
+        with gr.TabItem("🎬 Video Voice Clone"):
+            gr.Markdown("### Create Voice Profile from Video")
+            gr.Markdown("Upload a video, trim to select the speech segment, and create a voice clone profile.")
+            
+            with gr.Row():
+                with gr.Column(elem_classes="starsilk-panel"):
+                    gr.Markdown("#### 1️⃣ Upload Video")
+                    video_upload = gr.Video(
+                        label="Video File (MP4, MOV, WebM)",
+                        sources=["upload"]
+                    )
+                    video_info_display = gr.Textbox(
+                        label="Video Info",
+                        interactive=False,
+                        max_lines=2
+                    )
+                    
+                with gr.Column(elem_classes="starsilk-panel"):
+                    gr.Markdown("#### 2️⃣ Trim Segment")
+                    gr.Markdown("Select the portion of video containing clear speech (3-30 seconds)")
+                    
+                    with gr.Row():
+                        trim_start = gr.Number(
+                            label="Start Time (seconds)",
+                            value=0,
+                            minimum=0,
+                            precision=2
+                        )
+                        trim_end = gr.Number(
+                            label="End Time (seconds)",
+                            value=10,
+                            minimum=0,
+                            precision=2
+                        )
+                    
+                    trim_duration_display = gr.Textbox(
+                        label="Segment Duration",
+                        value="10.00 seconds",
+                        interactive=False,
+                        max_lines=1
+                    )
+            
+            gr.Markdown("---")
+            
+            with gr.Row():
+                with gr.Column(elem_classes="starsilk-panel"):
+                    gr.Markdown("#### 3️⃣ Consent & Profile Details")
+                    
+                    # Consent section with warning
+                    gr.Markdown("""
+                    ⚠️ **Voice Cloning Ethics & Safety**
+                    
+                    Voice cloning technology should only be used ethically and legally:
+                    - You must have explicit consent from the person whose voice you're cloning
+                    - Do not create voices of public figures without permission  
+                    - Do not use cloned voices for fraud, impersonation, or deception
+                    - Respect privacy and intellectual property rights
+                    """)
+                    
+                    consent_checkbox = gr.Checkbox(
+                        label="I confirm I have the rights and consent to use this voice",
+                        value=False,
+                        info="Required before creating voice profile"
+                    )
+                    
+                    video_voice_name = gr.Textbox(
+                        label="Voice Profile Name",
+                        placeholder="e.g. John Doe Professional",
+                        max_lines=1
+                    )
+                    
+                    video_voice_notes = gr.Textbox(
+                        label="Notes (optional)",
+                        placeholder="e.g. Source: interview footage, 2024",
+                        lines=2
+                    )
+                    
+                    btn_create_video_voice = gr.Button(
+                        "✨ Create Voice Profile",
+                        variant="primary",
+                        size="lg"
+                    )
+                    
+                    video_voice_status = gr.Textbox(
+                        label="Status",
+                        interactive=False,
+                        max_lines=3
+                    )
+                
+                with gr.Column(elem_classes="starsilk-panel"):
+                    gr.Markdown("#### 4️⃣ Test Voice")
+                    gr.Markdown("After creating the profile, test it with a sample phrase")
+                    
+                    test_text_input = gr.Textbox(
+                        label="Test Text",
+                        value="This is a test of the voice cloning system.",
+                        lines=3
+                    )
+                    
+                    btn_test_video_voice = gr.Button("🎙️ Test Voice", variant="secondary")
+                    
+                    test_audio_output = gr.Audio(
+                        label="Test Output",
+                        interactive=False,
+                        type="filepath"
+                    )
+                    
+                    test_status_display = gr.Textbox(
+                        label="Test Status",
+                        interactive=False,
+                        max_lines=1
+                    )
+
     # Event handlers
     txt_input.change(update_text_stats, inputs=[txt_input], outputs=[text_stats])
     
@@ -388,6 +501,44 @@ with gr.Blocks(css=STARSILK_CSS, title="DexTalker") as demo:
     btn_refresh_voices.click(
         refresh_voices_handler,
         outputs=[voice_sel, voice_manifest, voice_metadata_table],
+    )
+    
+    # Video Voice Clone tab handlers
+    video_upload.change(
+        get_video_info_handler,
+        inputs=[video_upload],
+        outputs=[video_info_display]
+    )
+    
+    trim_start.change(
+        update_trim_duration,
+        inputs=[trim_start, trim_end],
+        outputs=[trim_duration_display]
+    )
+    
+    trim_end.change(
+        update_trim_duration,
+        inputs=[trim_start, trim_end],
+        outputs=[trim_duration_display]
+    )
+    
+    btn_create_video_voice.click(
+        create_video_voice_handler,
+        inputs=[
+            video_upload,
+            trim_start,
+            trim_end,
+            video_voice_name,
+            video_voice_notes,
+            consent_checkbox
+        ],
+        outputs=[video_voice_status, voice_sel, voice_metadata_table]
+    )
+    
+    btn_test_video_voice.click(
+        test_video_voice_handler,
+        inputs=[video_voice_name, test_text_input],
+        outputs=[test_audio_output, test_status_display]
     )
 
 if __name__ == "__main__":

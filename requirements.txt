@@ -11,3 +11,5 @@ numpy>=1.24.0
 chatterbox-tts>=0.0.1
 pywebview>=4.0
 sounddevice>=0.4.6
+ffmpeg-python>=0.2.0
+librosa>=0.10.0

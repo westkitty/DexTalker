@@ -35,12 +35,15 @@ class ChatterboxEngine:
         self.output_dir = self.data_dir / "outputs"
         self.voices_dir = self.data_dir / "voices"
         self.recordings_dir = self.data_dir / "recordings"
+        self.videos_dir = self.data_dir / "videos"  # For temp video processing
+        self.voice_metadata_file = self.data_dir / "voice_metadata.json"
         
         # Ensure directories exist
         self.models_dir.mkdir(parents=True, exist_ok=True)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.voices_dir.mkdir(parents=True, exist_ok=True)
         self.recordings_dir.mkdir(parents=True, exist_ok=True)
+        self.videos_dir.mkdir(parents=True, exist_ok=True)
         
         # Create .gitkeep files for empty directories
         for directory in [self.models_dir, self.output_dir]:
@@ -454,3 +457,133 @@ class ChatterboxEngine:
             return None, f"Failed to save recording: {e}"
 
         return str(output_path), "Recording captured."
+
+    async def create_voice_from_video(
+        self,
+        video_path: str,
+        start_time: float,
+        end_time: float,
+        voice_name: str,
+        notes: str = "",
+        consented: bool = False
+    ) -> Tuple[bool, str]:
+        """
+        Create a voice profile from a video segment.
+        
+        Args:
+            video_path: Path to video file
+            start_time: Start time in seconds
+            end_time: End time in seconds
+            voice_name: Name for the voice profile
+            notes: Optional notes about the voice
+            consented: User has consented to use this voice
+            
+        Returns:
+            Tuple of (success, message)
+        """
+        if not consented:
+            return False, "Consent required. You must agree to have rights to use this voice."
+        
+        try:
+            from app.video.processor import VideoProcessor
+            import json
+            
+            # Load config if exists
+            config = {}
+            if Path("config.toml").exists():
+                try:
+                    import toml
+                    full_config = toml.load("config.toml")
+                    config = full_config.get("video_voice_clone", {})
+                except:
+                    pass
+            
+            # Initialize video processor
+            processor = VideoProcessor(config)
+            
+            # Validate video
+            video_path_obj = Path(video_path)
+            valid, msg = processor.validate_video(video_path_obj)
+            if not valid:
+                return False, f"Video validation failed: {msg}"
+            
+            # Sanitize voice name
+            safe_name = re.sub(r"[^A-Za-z0-9_-]+", "_", voice_name.strip()).strip("_")
+            if not safe_name:
+                return False, "Voice name must contain letters or numbers."
+            
+            # Check for duplicate
+            dest_audio_path = self.voices_dir / f"{safe_name}.wav"
+            if dest_audio_path.exists():
+                logger.warning(f"Voice '{safe_name}' already exists, overwriting.")
+            
+            # Extract audio segment
+            temp_audio_path = self.videos_dir / f"temp_{safe_name}_{uuid.uuid4().hex[:6]}.wav"
+            
+            try:
+                success, extract_msg = processor.extract_audio_segment(
+                    video_path_obj,
+                    start_time,
+                    end_time,
+                    temp_audio_path
+                )
+                
+                if not success:
+                    return False, extract_msg
+                
+                # Move to permanent location
+                shutil.move(str(temp_audio_path), str(dest_audio_path))
+                
+                # Save metadata
+                metadata = self._load_voice_metadata()
+                metadata[safe_name] = {
+                    "source_type": "video",
+                    "source_file": video_path_obj.name,
+                    "trim_range": [start_time, end_time],
+                    "duration_sec": end_time - start_time,
+                    "sample_rate": processor.target_sr,
+                    "created_date": datetime.now().isoformat(),
+                    "notes": notes,
+                    "audio_file": str(dest_audio_path)
+                }
+                self._save_voice_metadata(metadata)
+                
+                logger.info(f"Created voice from video: {safe_name}")
+                return True, f"Voice profile '{safe_name}' created successfully from video!"
+                
+            finally:
+                # Cleanup temp file if it still exists
+                if temp_audio_path.exists():
+                    processor.cleanup_temp_files(temp_audio_path)
+                    
+        except ImportError as e:
+            logger.error(f"Missing dependency: {e}")
+            return False, "ffmpeg-python or librosa not installed. Please install dependencies."
+        except Exception as e:
+            logger.error(f"Failed to create voice from video: {e}")
+            return False, f"Failed to create voice: {str(e)}"
+    
+    def _load_voice_metadata(self) -> dict:
+        """Load voice metadata from JSON file."""
+        if self.voice_metadata_file.exists():
+            try:
+                import json
+                with open(self.voice_metadata_file, 'r') as f:
+                    return json.load(f)
+            except Exception as e:
+                logger.warning(f"Failed to load voice metadata: {e}")
+        return {}
+    
+    def _save_voice_metadata(self, metadata: dict):
+        """Save voice metadata to JSON file."""
+        try:
+            import json
+            with open(self.voice_metadata_file, 'w') as f:
+                json.dump(metadata, f, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to save voice metadata: {e}")
+    
+    def get_voice_metadata_info(self, voice_name: str) -> Optional[dict]:
+        """Get metadata for a specific voice."""
+        metadata = self._load_voice_metadata()
+        return metadata.get(voice_name)
