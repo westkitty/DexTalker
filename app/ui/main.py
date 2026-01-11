@@ -17,6 +17,72 @@ network_auth = NetworkAuth(Path("data"))
 # Generation history (in-memory for this session)
 generation_history = []
 
+# Network Settings Handlers
+def get_current_network_urls():
+    """Get current shareable URLs."""
+    config = network_auth.get_config()
+    port = config["port"]
+    urls = generate_shareable_urls(port)
+    
+    return (
+        urls["localhost"] or "Not available",
+        urls["lan"] or "No LAN IP detected",
+        urls["tailscale"] or "No Tailscale IP detected",
+        urls["magicDNS"] or "MagicDNS not available"
+    )
+
+
+def update_network_settings(lan_enabled, tailnet_enabled, tailnet_only, port, require_login):
+    """Update network settings and return new URLs."""
+    try:
+        network_auth.update_config(
+            lan_enabled=lan_enabled,
+            tailnet_enabled=tailnet_enabled,
+            tailnet_only=tailnet_only,
+            port=int(port),
+            require_login=require_login
+        )
+        
+        # Get updated URLs
+        localhost, lan, tailscale, magic = get_current_network_urls()
+        
+        status = "✅ Settings updated. Restart required for changes to take effect."
+        return status, localhost, lan, tailscale, magic
+        
+    except Exception as e:
+        return f"❌ Failed to update settings: {str(e)}", *get_current_network_urls()
+
+
+def regenerate_access_token_handler():
+    """Regenerate the access token."""
+    new_token = network_auth.regenerate_token()
+    return f"✅ New token generated: {new_token[:16]}...{new_token[-8:]}"
+
+
+def get_network_status():
+    """Get network connectivity status."""
+    from app.network.utils import get_tailscale_status, check_port_available
+    
+    config = network_auth.get_config()
+    port = config["port"]
+    
+    server_status = "● Server Running" if check_port_available(port) == False else "○ Server Stopped"
+    
+    # Check Tailscale
+    ts_status = get_tailscale_status()
+    if ts_status["running"]:
+        tailnet_status = "● Tailnet Reachable"
+    elif ts_status["installed"]:
+        tailnet_status = f"○ Tailnet Offline ({ts_status.get('error', 'Not connected')})"
+    else:
+        tailnet_status = "○ Tailscale Not Installed"
+    
+    # LAN is assumed reachable if we have a non-localhost IP
+    lan_ip = generate_shareable_urls(port)["lan"]
+    lan_status = "● LAN Reachable" if lan_ip else "○ No LAN Connection"
+    
+    return f"{server_status}\n{lan_status}\n{tailnet_status}"
+
 # Starsilk Theme CSS
 STARSILK_CSS = """
 :root {
