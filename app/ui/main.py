@@ -1,9 +1,17 @@
 import gradio as gr
 from pathlib import Path
+from datetime import datetime
 from app.engine.chatterbox import ChatterboxEngine
+from app.utils import (
+    get_text_stats, format_duration, preprocess_text,
+    get_text_presets, get_voice_metadata
+)
 
 # Initialize Engine
 engine = ChatterboxEngine()
+
+# Generation history (in-memory for this session)
+generation_history = []
 
 # Starsilk Theme CSS
 STARSILK_CSS = """
@@ -17,6 +25,9 @@ STARSILK_CSS = """
     --text-secondary: #a0a0aa;
     --border: #2a2a35;
     --input-bg: #0f0f15;
+    --success: #00ff88;
+    --warning: #ffaa00;
+    --danger: #ff4b4b;
 }
 
 body, .gradio-container {
@@ -53,6 +64,16 @@ button.primary:hover {
     background: var(--primary-hover) !important;
 }
 
+.text-stat {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+}
+
+.text-stat.green { color: var(--success); }
+.text-stat.yellow { color: var(--warning); }
+.text-stat.red { color: var(--danger); }
+
 footer { display: none !important; }
 button[aria-label="Settings"],
 button[aria-label="Language"],
@@ -80,20 +101,99 @@ def get_engine_status_display():
         return f"✅ **{provider}** on `{device}` | {status['available_voices_count']} voices"
 
 
-async def synthesize_handler(text, voice):
+def update_text_stats(text):
+    """Update character/word count and estimated duration."""
+    if not text:
+        return "0 chars | 0 words | 0s"
+    
+    chars, words, duration = get_text_stats(text)
+    
+    # Color code based on length
+    if chars < 500:
+        css_class = "green"
+    elif chars < 1000:
+        css_class = "yellow"
+    else:
+        css_class = "red"
+    
+    return f'<span class="text-stat {css_class}">{chars} chars | {words} words | ~{format_duration(duration)}</span>'
+
+
+def apply_preprocessing(text, remove_urls, remove_special):
+    """Apply text preprocessing and return cleaned text."""
+    if not text:
+        return text
+    return preprocess_text(text, remove_urls, remove_special)
+
+
+def load_preset(preset_name):
+    """Load a text preset."""
+    presets = get_text_presets()
+    return presets.get(preset_name, "")
+
+
+async def synthesize_handler(text, voice, remove_urls, remove_special, progress=gr.Progress()):
     """Generate speech from text."""
     if not text:
-        return None, "⚠️ Please enter text to synthesize."
+        return None, "⚠️ Please enter text to synthesize.", gr.update(), gr.update()
 
-    file_path, status = await engine.synthesize(text, voice)
+    # Preprocess text
+    processed_text = preprocess_text(text, remove_urls, remove_special)
+    if not processed_text:
+        return None, "⚠️ Text is empty after preprocessing.", gr.update(), gr.update()
+
+    progress(0, desc="Generating speech...")
+    file_path, status = await engine.synthesize(processed_text, voice)
+    progress(1, desc="Complete!")
 
     if file_path:
-        return file_path, f"✅ Ready: {Path(file_path).name}"
-    return None, f"❌ {status}"
+        # Add to history
+        history_entry = {
+            "text": processed_text[:100] + ("..." if len(processed_text) > 100 else ""),
+            "voice": voice,
+            "file": file_path,
+            "timestamp": datetime.now().strftime("%H:%M:%S")
+        }
+        generation_history.insert(0, history_entry)
+        if len(generation_history) > 10:
+            generation_history.pop()
+        
+        history_display = format_history()
+        
+        return file_path, f"✅ Ready: {Path(file_path).name}", file_path, history_display
+    return None, f"❌ {status}", gr.update(), gr.update()
 
 
-async def record_voice_handler(duration_sec):
+def format_history():
+    """Format generation history for display."""
+    if not generation_history:
+        return []
+    
+    formatted = []
+    for entry in generation_history:
+        formatted.append({
+            "Time": entry["timestamp"],
+            "Voice": entry["voice"],
+            "Text": entry["text"],
+            "File": Path(entry["file"]).name
+        })
+    return formatted
+
+
+def replay_from_history(history_table, evt: gr.SelectData):
+    """Replay audio from history when row is clicked."""
+    if not generation_history or evt.index[0] >= len(generation_history):
+        return None
+    
+    entry = generation_history[evt.index[0]]
+    return entry["file"]
+
+
+async def record_voice_handler(duration_sec, progress=gr.Progress()):
+    progress(0, desc=f"Recording for {int(duration_sec)}s...")
     path, status = await engine.record_voice_sample(duration_sec)
+    progress(1, desc="Complete!")
+    
     if path:
         return path, f"✅ {status}"
     return None, f"❌ {status}"
@@ -102,35 +202,75 @@ async def record_voice_handler(duration_sec):
 async def add_voice_handler(voice_name, voice_upload, recorded_path):
     source_path = recorded_path or voice_upload
     if not source_path:
-        return "❌ Record or upload a voice sample.", gr.update(), gr.update()
+        return "❌ Record or upload a voice sample.", gr.update(), gr.update(), gr.update()
 
     success, msg = await engine.add_voice(voice_name, source_path)
     choices = _load_voice_choices()
     new_value = voice_name if voice_name in choices else (choices[0] if choices else None)
     status_prefix = "✅" if success else "❌"
-    return f"{status_prefix} {msg}", gr.update(choices=choices, value=new_value), choices
+    
+    # Update metadata
+    metadata = get_voice_metadata_table()
+    
+    return f"{status_prefix} {msg}", gr.update(choices=choices, value=new_value), choices, metadata
+
+
+def get_voice_metadata_table():
+    """Get voice metadata as table."""
+    voices_dir = engine.voices_dir
+    metadata = []
+    
+    for voice_file in sorted(voices_dir.glob("*.wav")):
+        meta = get_voice_metadata(voice_file)
+        metadata.append({
+            "Voice": voice_file.stem,
+            "Duration": meta["duration"],
+            "Size": meta["size"],
+            "Added": meta["date_added"]
+        })
+    
+    return metadata
 
 
 def refresh_voices_handler():
     choices = _load_voice_choices()
-    return gr.update(choices=choices, value=choices[0] if choices else None), choices
+    metadata = get_voice_metadata_table()
+    return gr.update(choices=choices, value=choices[0] if choices else None), choices, metadata
 
 
 with gr.Blocks(css=STARSILK_CSS, title="DexTalker") as demo:
     gr.Markdown("# 🎙️ DexTalker")
     gr.Markdown(get_engine_status_display())
+    gr.Markdown("💡 **Quick Tip**: Press Ctrl/Cmd+Enter in the text box to generate speech")
 
     with gr.Tabs():
         with gr.TabItem("Studio"):
             with gr.Row():
                 with gr.Column(elem_classes="starsilk-panel"):
                     gr.Markdown("### Generator")
+                    
+                    # Preset selector
+                    preset_choices = list(get_text_presets().keys())
+                    preset_dropdown = gr.Dropdown(
+                        choices=["(None)"] + preset_choices,
+                        label="📝 Text Presets",
+                        value="(None)"
+                    )
+                    
                     txt_input = gr.Textbox(
                         label="Input Text",
                         lines=5,
-                        placeholder="Type here to speak...",
+                        placeholder="Type here to speak... (Ctrl/Cmd+Enter to generate)",
                         value="Welcome to DexTalker. The stars are silent, but we are not."
                     )
+                    
+                    # Text stats
+                    text_stats = gr.HTML(update_text_stats(txt_input.value))
+                    
+                    # Preprocessing options
+                    with gr.Accordion("🔧 Text Preprocessing", open=False):
+                        remove_urls_check = gr.Checkbox(label="Remove URLs", value=False)
+                        remove_special_check = gr.Checkbox(label="Remove special characters", value=False)
 
                     voice_choices = _load_voice_choices()
                     voice_sel = gr.Dropdown(
@@ -138,9 +278,26 @@ with gr.Blocks(css=STARSILK_CSS, title="DexTalker") as demo:
                         label="Voice",
                         value=voice_choices[0] if voice_choices else None,
                     )
-                    btn_generate = gr.Button("Generate Speech", variant="primary")
+                    
+                    btn_generate = gr.Button("🎙️ Generate Speech (Ctrl+Enter)", variant="primary")
                     status_gen = gr.Textbox(label="Status", interactive=False, max_lines=1)
                     audio_gen_out = gr.Audio(label="Generated Output", interactive=False, type="filepath")
+                    
+                    # Copy to clipboard button
+                    output_path_display = gr.Textbox(label="Output Path", interactive=False, max_lines=1)
+                    with gr.Row():
+                        copy_btn = gr.Button("📋 Copy Path", size="sm")
+                        
+                with gr.Column(elem_classes="starsilk-panel"):
+                    gr.Markdown("### 📜 Generation History")
+                    gr.Markdown("Click on any row to replay the audio")
+                    history_table = gr.Dataframe(
+                        headers=["Time", "Voice", "Text", "File"],
+                        datatype=["str", "str", "str", "str"],
+                        value=[],
+                        interactive=False,
+                    )
+                    history_audio = gr.Audio(label="History Playback", interactive=False, type="filepath", visible=False)
 
         with gr.TabItem("Voices"):
             gr.Markdown("### Record or Upload a Voice Sample")
@@ -156,7 +313,7 @@ with gr.Blocks(css=STARSILK_CSS, title="DexTalker") as demo:
                         value=6,
                         label="Recording Length (seconds)",
                     )
-                    btn_record = gr.Button("Record Sample", variant="primary")
+                    btn_record = gr.Button("🎤 Record Sample", variant="primary")
                     record_status = gr.Textbox(label="Record Status", interactive=False, max_lines=1)
                     record_preview = gr.Audio(label="Recorded Sample", interactive=False, type="filepath")
 
@@ -166,17 +323,54 @@ with gr.Blocks(css=STARSILK_CSS, title="DexTalker") as demo:
 
                     gr.Markdown("#### Register Voice")
                     voice_name = gr.Textbox(label="Voice Name", placeholder="e.g. Commander Shepard")
-                    btn_add_voice = gr.Button("Register Voice", variant="primary")
+                    btn_add_voice = gr.Button("➕ Register Voice", variant="primary")
                     status_voice = gr.Textbox(label="Status", interactive=False)
 
+            gr.Markdown("### 📊 Voice Library")
+            with gr.Row():
+                voice_metadata_table = gr.Dataframe(
+                    headers=["Voice", "Duration", "Size", "Added"],
+                    datatype=["str", "str", "str", "str"],
+                    value=get_voice_metadata_table(),
+                    label="Voice Metadata"
+                )
+            
             with gr.Row():
                 voice_manifest = gr.JSON(value=_load_voice_choices(), label="Available Voices")
-                btn_refresh_voices = gr.Button("Refresh Voices")
+                btn_refresh_voices = gr.Button("🔄 Refresh Voices")
 
+    # Event handlers
+    txt_input.change(update_text_stats, inputs=[txt_input], outputs=[text_stats])
+    
+    preset_dropdown.change(
+        lambda preset: load_preset(preset) if preset != "(None)" else "",
+        inputs=[preset_dropdown],
+        outputs=[txt_input]
+    )
+    
     btn_generate.click(
         synthesize_handler,
-        inputs=[txt_input, voice_sel],
-        outputs=[audio_gen_out, status_gen],
+        inputs=[txt_input, voice_sel, remove_urls_check, remove_special_check],
+        outputs=[audio_gen_out, status_gen, output_path_display, history_table],
+    )
+    
+    # Keyboard shortcut: Ctrl+Enter to generate
+    txt_input.submit(
+        synthesize_handler,
+        inputs=[txt_input, voice_sel, remove_urls_check, remove_special_check],
+        outputs=[audio_gen_out, status_gen, output_path_display, history_table],
+    )
+    
+    copy_btn.click(
+        lambda path: gr.Info(f"Copied: {path}") if path else gr.Warning("No path to copy"),
+        inputs=[output_path_display],
+        outputs=[]
+    )
+    
+    history_table.select(
+        replay_from_history,
+        inputs=[history_table],
+        outputs=[history_audio]
     )
 
     btn_record.click(
@@ -188,12 +382,12 @@ with gr.Blocks(css=STARSILK_CSS, title="DexTalker") as demo:
     btn_add_voice.click(
         add_voice_handler,
         inputs=[voice_name, voice_upload, record_preview],
-        outputs=[status_voice, voice_sel, voice_manifest],
+        outputs=[status_voice, voice_sel, voice_manifest, voice_metadata_table],
     )
 
     btn_refresh_voices.click(
         refresh_voices_handler,
-        outputs=[voice_sel, voice_manifest],
+        outputs=[voice_sel, voice_manifest, voice_metadata_table],
     )
 
 if __name__ == "__main__":

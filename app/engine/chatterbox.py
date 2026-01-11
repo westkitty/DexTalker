@@ -199,11 +199,16 @@ class ChatterboxEngine:
     def _generate_chatterbox_audio(self, text: str, voice_id: str, output_path: Path):
         voice_path = self._resolve_voice_path(voice_id)
         audio_prompt = str(voice_path) if voice_path else None
-        audio = self._provider.generate(text, audio_prompt_path=audio_prompt)
+        
+        try:
+            audio = self._provider.generate(text, audio_prompt_path=audio_prompt)
+        except Exception as e:
+            raise RuntimeError(f"Failed to generate audio: {str(e)}") from e
 
         try:
             audio = audio.squeeze(0)
-        except Exception:
+        except (AttributeError, RuntimeError):
+            # Audio might already be in correct shape
             pass
 
         if hasattr(audio, "detach"):
@@ -211,11 +216,15 @@ class ChatterboxEngine:
 
         try:
             import soundfile as sf
-        except Exception as e:
+        except ImportError as e:
             raise RuntimeError("soundfile is required for Chatterbox output.") from e
 
         sample_rate = self._provider_sample_rate or getattr(self._provider, "sr", None) or 24000
-        sf.write(str(output_path), audio, sample_rate)
+        
+        try:
+            sf.write(str(output_path), audio, sample_rate)
+        except Exception as e:
+            raise RuntimeError(f"Failed to write audio file: {str(e)}") from e
 
     def _resolve_voice_path(self, voice_id: str) -> Optional[Path]:
         if not voice_id:
@@ -261,25 +270,29 @@ class ChatterboxEngine:
 
         try:
             import numpy as np
-        except Exception:
+        except ImportError:
             np = None
 
-        with wave.open(str(output_path), "wb") as wf:
-            wf.setnchannels(1)
-            wf.setsampwidth(2)
-            wf.setframerate(sample_rate)
+        try:
+            with wave.open(str(output_path), "wb") as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(sample_rate)
 
-            if np is not None:
+                if np is not None:
                 t = np.linspace(0, duration, frames, endpoint=False)
-                waveform = amplitude * np.sin(2 * math.pi * frequency * t)
-                audio = (waveform * 32767).astype(np.int16)
-                wf.writeframes(audio.tobytes())
-            else:
-                data = array("h")
-                for i in range(frames):
-                    sample = int(32767 * amplitude * math.sin(2 * math.pi * frequency * i / sample_rate))
-                    data.append(sample)
-                wf.writeframes(data.tobytes())
+                    waveform = amplitude * np.sin(2 * math.pi * frequency * t)
+                    audio = (waveform * 32767).astype(np.int16)
+                    wf.writeframes(audio.tobytes())
+                else:
+                    data = array("h")
+                    for i in range(frames):
+                        sample = int(32767 * amplitude * math.sin(2 * math.pi * frequency * i / sample_rate))
+                        data.append(sample)
+                    wf.writeframes(data.tobytes())
+        except Exception as e:
+            logger.error(f"Failed to generate fallback audio: {e}")
+            raise
 
     async def save_recording(self, source_path: str, name_prefix: str = "recording") -> Tuple[Optional[str], str]:
         """
@@ -371,24 +384,34 @@ class ChatterboxEngine:
             return False, "Voice name is required."
         if not voice_file:
             return False, "Voice sample is required."
+        
+        # Check if file exists
+        src_path = Path(voice_file)
+        if not src_path.exists():
+            return False, "Voice file not found."
+        if not src_path.is_file():
+            return False, "Path must be a file."
 
         safe_name = re.sub(r"[^A-Za-z0-9_-]+", "_", voice_name.strip()).strip("_")
         if not safe_name:
             return False, "Voice name must contain letters or numbers."
-
-        src_path = Path(voice_file)
+        
+        # Check for duplicate
         dest_path = self.voices_dir / f"{safe_name}.wav"
+        if dest_path.exists():
+            logger.warning(f"Voice '{safe_name}' already exists, overwriting.")
 
         try:
             import soundfile as sf
             audio, sr = sf.read(src_path)
             sf.write(dest_path, audio, sr)
-        except Exception:
+        except Exception as audio_err:
             if src_path.suffix.lower() != ".wav":
                 return False, "Unsupported audio format. Upload a .wav file."
             try:
                 shutil.copy2(src_path, dest_path)
             except Exception as e:
+                logger.error(f"Failed to save voice: {e}")
                 return False, f"Failed to save voice: {e}"
 
         return True, f"Voice '{safe_name}' added."
