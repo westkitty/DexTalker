@@ -1,0 +1,20 @@
+# DexTalker Configuration File
+# Copy this to config.toml and customize as needed
+
+[app]
+# Port for the web UI server
+port = 7860
+
+# Default voice to use on startup
+default_voice = "default"
+
+[engine]
+# Enable fallback audio generation if TTS provider fails
+fallback_enabled = true
+
+# Logging level (DEBUG, INFO, WARNING, ERROR)
+log_level = "INFO"
+
+[paths]
+# Data directory for voices, outputs, and models
+data_dir = "data"

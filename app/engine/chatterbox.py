@@ -42,6 +42,12 @@ class ChatterboxEngine:
         self.voices_dir.mkdir(parents=True, exist_ok=True)
         self.recordings_dir.mkdir(parents=True, exist_ok=True)
         
+        # Create .gitkeep files for empty directories
+        for directory in [self.models_dir, self.output_dir]:
+            gitkeep = directory / ".gitkeep"
+            if not gitkeep.exists():
+                gitkeep.touch()
+        
         self.is_loaded = False
         self._provider = None
         self._provider_name = None
@@ -333,45 +339,12 @@ class ChatterboxEngine:
         files.sort(key=lambda x: os.path.getmtime(x[1]), reverse=True)
         return files
 
-    async def add_voice(self, name: str, file_path: str) -> Tuple[bool, str]:
-        """
-        Add a new voice from a file path.
-        """
-        if not name or not file_path:
-            return False, "Invalid name or file."
-            
-        safe_name = "".join(c for c in name if c.isalnum() or c in ('-', '_')).strip()
-        if not safe_name:
-            return False, "Invalid voice name."
-            
-        dest_path = self.voices_dir / f"{safe_name}.wav"
-        
-        try:
-            loop = asyncio.get_running_loop()
-            # Verify and copy in thread
-            def _process_voice():
-                import soundfile as sf
-                # Try reading to verify it's audio
-                try:
-                    data, sr = sf.read(file_path)
-                    # Write standardized wav
-                    sf.write(str(dest_path), data, sr)
-                except Exception:
-                    # Fallback copy if sf fails but it might be valid (or let it fail next time)
-                    shutil.copy2(file_path, dest_path)
-                    
-            await loop.run_in_executor(None, _process_voice)
-            return True, f"Voice '{safe_name}' added."
-        except Exception as e:
-            logger.error(f"Failed to add voice {name}: {e}")
-            return False, f"Failed to add voice: {e}"
-
     def get_output_directory(self) -> str:
         return str(self.output_dir)
 
     def get_available_voices(self) -> List[str]:
         """Return list of available voice profiles."""
-        voices = ["Chatterbox Default"]
+        voices = ["default"]
         try:
             for path in sorted(self.voices_dir.iterdir()):
                 if path.is_file() and path.suffix.lower() == ".wav":
@@ -379,6 +352,16 @@ class ChatterboxEngine:
         except OSError as e:
             logger.warning("Failed to read voices directory. Error: %s", e)
         return voices
+    
+    def get_engine_status(self) -> dict:
+        """Return engine status information for debugging and UI display."""
+        return {
+            "initialized": self.is_loaded,
+            "provider": self._provider_name or "fallback",
+            "device": self._provider_device or "N/A",
+            "fallback_mode": self._provider is None,
+            "available_voices_count": len(self.get_available_voices()),
+        }
 
     async def add_voice(self, voice_name: str, voice_file: str) -> Tuple[bool, str]:
         return await asyncio.to_thread(self._add_voice_sync, voice_name, voice_file)

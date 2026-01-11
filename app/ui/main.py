@@ -67,6 +67,19 @@ def _load_voice_choices():
     return engine.get_available_voices()
 
 
+def get_engine_status_display():
+    """Get formatted engine status for UI display."""
+    status = engine.get_engine_status()
+    provider = status["provider"]
+    device = status["device"]
+    fallback = status["fallback_mode"]
+    
+    if fallback:
+        return "⚠️ **Fallback Mode** (Chatterbox not available)"
+    else:
+        return f"✅ **{provider}** on `{device}` | {status['available_voices_count']} voices"
+
+
 async def synthesize_handler(text, voice):
     """Generate speech from text."""
     if not text:
@@ -105,6 +118,7 @@ def refresh_voices_handler():
 
 with gr.Blocks(css=STARSILK_CSS, title="DexTalker") as demo:
     gr.Markdown("# 🎙️ DexTalker")
+    gr.Markdown(get_engine_status_display())
 
     with gr.Tabs():
         with gr.TabItem("Studio"):
