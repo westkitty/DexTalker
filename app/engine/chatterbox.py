@@ -283,7 +283,7 @@ class ChatterboxEngine:
                 wf.setframerate(sample_rate)
 
                 if np is not None:
-                t = np.linspace(0, duration, frames, endpoint=False)
+                    t = np.linspace(0, duration, frames, endpoint=False)
                     waveform = amplitude * np.sin(2 * math.pi * frequency * t)
                     audio = (waveform * 32767).astype(np.int16)
                     wf.writeframes(audio.tobytes())
