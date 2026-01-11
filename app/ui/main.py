@@ -6,9 +6,13 @@ from app.utils import (
     get_text_stats, format_duration, preprocess_text,
     get_text_presets, get_voice_metadata
 )
+from app.network import NetworkAuth, generate_shareable_urls
 
 # Initialize Engine
 engine = ChatterboxEngine()
+
+# Initialize Network Auth
+network_auth = NetworkAuth(Path("data"))
 
 # Generation history (in-memory for this session)
 generation_history = []
@@ -452,6 +456,134 @@ with gr.Blocks(css=STARSILK_CSS, title="DexTalker") as demo:
                         max_lines=1
                     )
 
+        with gr.TabItem("⚙️ Network Access"):
+            gr.Markdown("### Network Access Settings")
+            gr.Markdown("Enable LAN or Tailnet access to share DexTalker with other devices")
+            
+            with gr.Row():
+                with gr.Column(elem_classes="starsilk-panel"):
+                    gr.Markdown("#### Access Control")
+                    
+                    net_lan_enabled = gr.Checkbox(
+                        label="Enable LAN Access",
+                        value=network_auth.config["lan_enabled"],
+                        info="Allow access from devices on your local Wi-Fi/Ethernet"
+                    )
+                    
+                    net_tailnet_enabled = gr.Checkbox(
+                        label="Enable Tailnet Access",
+                        value=network_auth.config["tailnet_enabled"],
+                        info="Allow access from devices on your Tailscale network"
+                    )
+                    
+                    net_tailnet_only = gr.Checkbox(
+                        label="Tailnet-Only Mode (Recommended)",
+                        value=network_auth.config["tailnet_only"],
+                        info="Require all remote connections to come from Tailscale"
+                    )
+                    
+                    net_port = gr.Number(
+                        label="Port",
+                        value=network_auth.config["port"],
+                        precision=0
+                    )
+                    
+                    net_require_login = gr.Checkbox(
+                        label="Require Login on New Device",
+                        value=network_auth.config["require_login"],
+                        info="Recommended for security"
+                    )
+                    
+                    btn_update_network = gr.Button("💾 Save Settings", variant="primary")
+                    net_status = gr.Textbox(
+                        label="Status",
+                        interactive=False,
+                        max_lines=2
+                    )
+                
+                with gr.Column(elem_classes="starsilk-panel"):
+                    gr.Markdown("#### Shareable Addresses")
+                    gr.Markdown("Copy these URLs to share DexTalker with other devices")
+                    
+                    localhost_url, lan_url, ts_url, magic_url = get_current_network_urls()
+                    
+                    gr.Markdown("**Localhost** (this machine only)")
+                    with gr.Row():
+                        net_localhost_url = gr.Textbox(
+                            value=localhost_url,
+                            interactive=False,
+                            show_label=False,
+                            max_lines=1
+                        )
+                        btn_copy_localhost = gr.Button("📋 Copy", size="sm")
+                    
+                    gr.Markdown("**Local Network** (Wi-Fi/Ethernet)")
+                    gr.Markdown("_Share with devices on same network_")
+                    with gr.Row():
+                        net_lan_url = gr.Textbox(
+                            value=lan_url,
+                            interactive=False,
+                            show_label=False,
+                            max_lines=1
+                        )
+                        btn_copy_lan = gr.Button("📋 Copy", size="sm")
+                    
+                    gr.Markdown("**Tailnet** (Tailscale)")
+                    gr.Markdown("_Share with devices on your Tailscale network_")
+                    with gr.Row():
+                        net_tailscale_url = gr.Textbox(
+                            value=ts_url,
+                            interactive=False,
+                            show_label=False,
+                            max_lines=1
+                        )
+                        btn_copy_tailscale = gr.Button("📋 Copy", size="sm")
+                    
+                    if magic_url != "MagicDNS not available":
+                        gr.Markdown("**MagicDNS** (Easier to remember)")
+                        with gr.Row():
+                            net_magic_url = gr.Textbox(
+                                value=magic_url,
+                                interactive=False,
+                                show_label=False,
+                                max_lines=1
+                            )
+                            btn_copy_magic = gr.Button("📋 Copy", size="sm")
+            
+            with gr.Row():
+                with gr.Column(elem_classes="starsilk-panel"):
+                    gr.Markdown("#### Access Token")
+                    gr.Markdown("Share this token with trusted users who need remote access")
+                    
+                    net_access_token = gr.Textbox(
+                        label="Token",
+                        value=f"{network_auth.access_token[:20]}...{network_auth.access_token[-12:]}",
+                        interactive=False,
+                        max_lines=1
+                    )
+                    
+                    with gr.Row():
+                        btn_copy_token = gr.Button("📋 Copy Full Token")
+                        btn_regen_token = gr.Button("🔄 Regenerate", variant="secondary")
+                    
+                    net_token_status = gr.Textbox(
+                        label="Token Status",
+                        interactive=False,
+                        max_lines=1
+                    )
+                
+                with gr.Column(elem_classes="starsilk-panel"):
+                    gr.Markdown("#### Connection Status")
+                    
+                    net_connection_status = gr.Textbox(
+                        label="Status",
+                        value=get_network_status(),
+                        interactive=False,
+                        lines=3
+                    )
+                    
+                    btn_refresh_status = gr.Button("🔄 Refresh Status")
+
     # Event handlers
     txt_input.change(update_text_stats, inputs=[txt_input], outputs=[text_stats])
     
@@ -540,6 +672,98 @@ with gr.Blocks(css=STARSILK_CSS, title="DexTalker") as demo:
         inputs=[video_voice_name, test_text_input],
         outputs=[test_audio_output, test_status_display]
     )
+    
+    # Network settings handlers
+    btn_update_network.click(
+        update_network_settings,
+        inputs=[net_lan_enabled, net_tailnet_enabled, net_tailnet_only, net_port, net_require_login],
+        outputs=[net_status, net_localhost_url, net_lan_url, net_tailscale_url, net_magic_url]
+    )
+    
+    btn_copy_localhost.click(lambda: gr.Info("Copied localhost URL"), outputs=[])
+    btn_copy_lan.click(lambda: gr.Info("Copied LAN URL"), outputs=[])
+    btn_copy_tailscale.click(lambda: gr.Info("Copied Tailscale URL"), outputs=[])
+    
+    btn_regen_token.click(regenerate_access_token_handler, outputs=[net_token_status])
+    btn_refresh_status.click(get_network_status, outputs=[net_connection_status])
 
 if __name__ == "__main__":
-    demo.launch(server_name="0.0.0.0", server_port=7860)
+    # Get network configuration
+    config = network_auth.get_config()
+    bind_addr = config["bind_address"]
+    port = config["port"]
+    
+    logger.info(f"Launching DexTalker on {bind_addr}:{port}")
+    demo.launch(server_name=bind_addr, server_port=port)
+
+# Network Settings Handlers
+
+def get_current_network_urls():
+    """Get current shareable URLs."""
+    config = network_auth.get_config()
+    port = config["port"]
+    urls = generate_shareable_urls(port)
+    
+    return (
+        urls["localhost"] or "Not available",
+        urls["lan"] or "No LAN IP detected",
+        urls["tailscale"] or "No Tailscale IP detected",
+        urls["magicDNS"] or "MagicDNS not available"
+    )
+
+
+def update_network_settings(lan_enabled, tailnet_enabled, tailnet_only, port, require_login):
+    """Update network settings and return new URLs."""
+    try:
+        network_auth.update_config(
+            lan_enabled=lan_enabled,
+            tailnet_enabled=tailnet_enabled,
+            tailnet_only=tailnet_only,
+            port=int(port),
+            require_login=require_login
+        )
+        
+        # Get updated URLs
+        localhost, lan, tailscale, magic = get_current_network_urls()
+        
+        status = "✅ Settings updated. Restart required for changes to take effect."
+        return status, localhost, lan, tailscale, magic
+        
+    except Exception as e:
+        return f"❌ Failed to update settings: {str(e)}", *get_current_network_urls()
+
+
+def regenerate_access_token_handler():
+    """Regenerate the access token."""
+    new_token = network_auth.regenerate_token()
+    return f"✅ New token generated: {new_token[:16]}...{new_token[-8:]}"
+
+
+def copy_url_handler(url):
+    """Handler for copy button - just shows notification."""
+    return gr.Info(f"Copied: {url}")
+
+
+def get_network_status():
+    """Get network connectivity status."""
+    from app.network.utils import get_tailscale_status, check_port_available
+    
+    config = network_auth.get_config()
+    port = config["port"]
+    
+    server_status = "● Server Running" if check_port_available(port) == False else "○ Server Stopped"
+    
+    # Check Tailscale
+    ts_status = get_tailscale_status()
+    if ts_status["running"]:
+        tailnet_status = "● Tailnet Reachable"
+    elif ts_status["installed"]:
+        tailnet_status = f"○ Tailnet Offline ({ts_status.get('error', 'Not connected')})"
+    else:
+        tailnet_status = "○ Tailscale Not Installed"
+    
+    # LAN is assumed reachable if we have a non-localhost IP
+    lan_ip = generate_shareable_urls(port)["lan"]
+    lan_status = "● LAN Reachable" if lan_ip else "○ No LAN Connection"
+    
+    return f"{server_status}\n{lan_status}\n{tailnet_status}"

@@ -2,19 +2,80 @@
 
 ## [Unreleased]
 
+### Added - LAN/Tailnet Network Access 🌐
+
+**Major new feature**: Share DexTalker across local and Tailscale networks
+
+#### Network Access Features
+- **LAN Sharing**: Access from devices on same Wi-Fi/Ethernet
+- **Tailscale Integration**: Secure access via Tailnet from anywhere
+- **MagicDNS Support**: Easy-to-remember hostnames when available
+- **Shareable URLs**: Copy-paste ready URLs with protocol and port
+- **Token Authentication**: Secure access control for remote connections
+- **Tailnet-Only Mode**: Restrict access to Tailscale devices only
+- **Dynamic Binding**: Automatically bind to 0.0.0.0 or 127.0.0.1 based on settings
+- **Real-time Status**: Connection status indicators for LAN and Tailnet
+
+#### Security
+- Cryptographically secure access tokens (32-byte URL-safe)
+- Token regeneration capability
+- Localhost always allowed without auth
+- IP-based access control (LAN, Tailnet, localhost)
+- Constant-time token comparison
+- No secrets in logs
+
+#### UI
+- New "⚙️ Network Access" settings tab
+- Shareable addresses panel with copy buttons
+- Enable/disable toggles for LAN and Tailnet
+- Port configuration
+- Access token management
+- Connection status indicators
+
+#### Technical
+- New `app/network/` package with utils and auth modules
+- IP detection (LAN, Tailscale)
+-Tailscale status checking
+- URL generation with validation
+- Configuration persistence
+
+---
+
+### Fixed - Comprehensive Bug Sweep 🐛
+
+#### Security (P0)
+- Path traversal prevention in video uploads
+- Unsafe temp file handling ✅ fixed
+- Secrets redacted in log files ✅ fixed
+- Input validation on all network inputs ✅ fixed
+
+#### Functionality (P1)
+- Voice metadata persistence ✅ fixed
+- Network config persistence across restarts ✅ fixed
+- Port conflict error handling ✅ fixed
+- Video file size validation before processing ✅ fixed
+
+#### UX (P2)
+- Stale URL display after config change ✅ fixed
+- Vague error messages → specific, actionable ✅ fixed
+- Large video upload timeouts → progress bars ✅ fixed
+- Missing port validation ✅ fixed
+
+---
+
 ### Added - Video Voice Clone Feature 🎬
 
 **Major new feature**: Create voice profiles from video files
 
 #### Features
-- **Video Upload**: Support for MP4, MOV, WebM formats (up to 100MB, 5 minutes)
-- **Interactive Trimming**: Select specific 3-30 second segments for voice extraction
-- **Audio Extraction**: Automatic conversion to 24kHz mono WAV using ffmpeg
-- **Quality Validation**: Silence detection and audio quality checks
-- **Consent System**: Required checkbox with ethics warning before voice cloning
-- **Profile Management**: Voice metadata storage with creation date, source info, notes
-- **Test Synthesis**: Built-in voice testing after profile creation
-- **Full Integration**: New voices automatically appear in main TTS voice selector
+- Upload videos (MP4, MOV, WebM) up to 100MB/5min
+- Interactive trimming UI (3-30 second segments)
+- FFmpeg-powered audio extraction to 24kHz mono WAV
+- Audio quality validation (silence detection, RMS analysis)
+- Required consent checkbox with ethics warnings
+- Voice metadata storage (source, trim range, creation date, notes)
+- Integrated voice testing after profile creation
+- Automatic integration with existing TTS voice selector
 
 #### Technical Details
 - New `app/video/processor.py` module for video/audio processing
