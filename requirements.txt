@@ -1,0 +1,13 @@
+fastapi>=0.100.0
+uvicorn>=0.23.0
+python-multipart>=0.0.6
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+gradio>=4.0.0
+httpx>=0.24.0
+loguru>=0.7.0
+soundfile>=0.12.1
+numpy>=1.24.0
+chatterbox-tts>=0.0.1
+pywebview>=4.0
+sounddevice>=0.4.6
