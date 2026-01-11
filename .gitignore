@@ -1,19 +1,45 @@
-# Environment
-.venv
-.venv311
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
+# Test Outputs
+data/outputs/*.wav
+data/recordings/*.wav
+data/videos/*.mp4
+data/videos/*.mov
+data/videos/*.webm
 
 # Logs
 *.log
+desktop_app_run.log
+launcher.log
+desktop_window.log
 
-# Data & Models
-data/outputs/*
-!data/outputs/.gitkeep
-data/models/*
-!data/models/.gitkeep
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+.venv/
+.venv311/
+venv/
+ENV/
+build/
+dist/
+*.egg-info/
 
-# macOS
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
 .DS_Store
+Thumbs.db
+
+# Config (should copy from example)
+config.toml
+
+# Data (runtime generated)
+data/network_auth.json
+data/voice_metadata.json

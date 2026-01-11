@@ -109,8 +109,18 @@ def _find_available_port(start: int, limit: int = 10) -> int:
 
 def _launch_gradio(port: int):
     print(f"Starting Gradio server on port {port}...", flush=True)
+    
+    # Import here to respect network configuration from main.py
+    from app.ui.main import demo, network_auth
+    
+    # Get network configuration
+    config = network_auth.get_config()
+    bind_addr = config.get("bind_address", "127.0.0.1")
+    
+    # Desktop app should typically use localhost for security
+    # but respect config if network access is enabled
     demo.launch(
-        server_name="127.0.0.1",
+        server_name=bind_addr if config.get("lan_enabled") or config.get("tailnet_enabled") else "127.0.0.1",
         server_port=port,
         inbrowser=False,
         prevent_thread_lock=True,

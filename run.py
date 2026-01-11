@@ -7,14 +7,12 @@ def main():
     
     base_dir = Path(__file__).resolve().parent
     os.chdir(base_dir)
-    sys.path.append(str(base_dir))
+    sys.path.insert(0, str(base_dir))
     
-    # We can run the Gradio app directly or via uvicorn if we mount it
-    # For simplicity in this new architecture, we'll run the Gradio launch directly
-    # but wrapped in a clean function
-    
-    from app.ui.main import demo
-    demo.launch(server_name="127.0.0.1", server_port=7860)
+    # Execute main.py which contains the proper launch configuration
+    # This ensures network settings are respected
+    import runpy
+    runpy.run_module("app.ui.main", run_name="__main__")
 
 if __name__ == "__main__":
     main()
