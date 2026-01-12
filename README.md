@@ -105,7 +105,8 @@ The controller provides buttons to:
 - Voice samples are stored in `data/voices/`
 - Supported format: `.wav` files
 - Recommended: 6-10 seconds of clear speech
-- Sample voices included: Albert, Aman, Bad News, Bubbles, Daniel
+- **No voice samples are included** (Sanitized for privacy)
+- Users can add their own voices via the "Voices" tab in the UI
 
 ### Output Directory
 - Generated audio saves to `data/outputs/`
