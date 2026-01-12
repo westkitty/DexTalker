@@ -161,7 +161,11 @@ def is_lan_ip(ip: str) -> bool:
         return False
 
 
-def generate_shareable_urls(port: int, protocol: str = "http") -> Dict[str, Optional[str]]:
+def generate_shareable_urls(
+    port: int,
+    protocol: str = "http",
+    bind_host: Optional[str] = None
+) -> Dict[str, Optional[str]]:
     """
     Generate all shareable URLs for the current host.
     
@@ -172,29 +176,32 @@ def generate_shareable_urls(port: int, protocol: str = "http") -> Dict[str, Opti
     Returns:
         Dict with keys: localhost, lan, tailscale, magicDNS
     """
+    bind_all = bind_host in ["0.0.0.0", "::", ""]
+    localhost_ok = bind_all or bind_host in [None, "127.0.0.1", "localhost", "::1"]
     urls = {
-        "localhost": f"{protocol}://127.0.0.1:{port}",
+        "localhost": f"{protocol}://127.0.0.1:{port}" if localhost_ok else None,
         "lan": None,
         "tailscale": None,
         "magicDNS": None
     }
     
-    # LAN IP
-    lan_ip = get_local_ip()
-    if lan_ip != "127.0.0.1":
-        urls["lan"] = f"{protocol}://{lan_ip}:{port}"
+    if bind_all:
+        # LAN IP
+        lan_ip = get_local_ip()
+        if lan_ip != "127.0.0.1":
+            urls["lan"] = f"{protocol}://{lan_ip}:{port}"
+        
+        # Tailscale IP
+        ts_ip = get_tailscale_ip()
+        if ts_ip:
+            urls["tailscale"] = f"{protocol}://{ts_ip}:{port}"
+        
+        # MagicDNS hostname
+        magic = get_magicDNS_hostname()
+        if magic:
+            urls["magicDNS"] = f"{protocol}://{magic}:{port}"
     
-    # Tailscale IP
-    ts_ip = get_tailscale_ip()
-    if ts_ip:
-        urls["tailscale"] = f"{protocol}://{ts_ip}:{port}"
-    
-    # MagicDNS hostname
-    magic = get_magicDNS_hostname()
-    if magic:
-        urls["magicDNS"] = f"{protocol}://{magic}:{port}"
-    
-    logger.info(f"Generated shareable URLs: {urls}")
+    logger.info(f"Generated shareable URLs (bind_host={bind_host}): {urls}")
     return urls
 
 

@@ -1,3 +1,7 @@
+import logging
+logger = logging.getLogger(__name__)
+import os
+import socket
 import gradio as gr
 from pathlib import Path
 from datetime import datetime
@@ -17,12 +21,124 @@ network_auth = NetworkAuth(Path("data"))
 # Generation history (in-memory for this session)
 generation_history = []
 
+_SELECTED_PORT = None
+_SELECTED_BIND_HOST = None
+
+
+def _is_bind_all(host: str) -> bool:
+    return host in ["0.0.0.0", "::", ""]
+
+
+def _resolve_bind_host() -> str:
+    env_host = os.environ.get("GRADIO_SERVER_NAME") or os.environ.get("GRADIO_SERVER_HOST")
+    if env_host:
+        return env_host.strip()
+    if os.environ.get("DEXTALKER_BIND_ALL") == "1":
+        return "0.0.0.0"
+    config = network_auth.get_config()
+    return config.get("bind_address") or "127.0.0.1"
+
+
+def _parse_port_range(value: str, default_start: int, default_end: int) -> tuple[int, int]:
+    if not value:
+        return default_start, default_end
+    try:
+        parts = [p.strip() for p in value.split("-") if p.strip()]
+        if len(parts) == 1:
+            start = end = int(parts[0])
+        else:
+            start = int(parts[0])
+            end = int(parts[1])
+        if start <= 0 or end <= 0 or end < start:
+            raise ValueError
+        return start, end
+    except Exception:
+        logger.warning(f"Ignoring invalid DEXTALKER_PORT_RANGE='{value}'")
+        return default_start, default_end
+
+
+def _is_port_free(port: int, host: str) -> bool:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.settimeout(1)
+        sock.bind((host, port))
+        return True
+    except OSError:
+        return False
+    finally:
+        sock.close()
+
+
+def _find_ephemeral_port(host: str) -> int:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.bind((host, 0))
+        return sock.getsockname()[1]
+    finally:
+        sock.close()
+
+
+def _select_port(bind_host: str) -> int:
+    config = network_auth.get_config()
+    config_port = int(config.get("port", 7860))
+    explicit_port = os.environ.get("GRADIO_SERVER_PORT") or os.environ.get("DEXTALKER_PORT")
+    allow_fallback = os.environ.get("ALLOW_PORT_FALLBACK") == "1"
+
+    if explicit_port:
+        try:
+            desired = int(explicit_port)
+        except ValueError:
+            logger.warning(f"Ignoring invalid port override: '{explicit_port}'")
+        else:
+            if _is_port_free(desired, bind_host):
+                return desired
+            message = (
+                f"Port {desired} is already in use on {bind_host}. "
+                "Set ALLOW_PORT_FALLBACK=1 to choose another port."
+            )
+            if not allow_fallback:
+                raise SystemExit(message)
+            logger.warning(message)
+
+    default_start = config_port if config_port > 0 else 7860
+    default_end = default_start + 15
+    range_value = os.environ.get("DEXTALKER_PORT_RANGE")
+    start, end = _parse_port_range(range_value, default_start, default_end)
+    for port in range(start, end + 1):
+        if _is_port_free(port, bind_host):
+            return port
+
+    return _find_ephemeral_port(bind_host)
+
+
+def _get_selected_host_port() -> tuple[str, int]:
+    global _SELECTED_BIND_HOST, _SELECTED_PORT
+    if _SELECTED_BIND_HOST and _SELECTED_PORT:
+        return _SELECTED_BIND_HOST, _SELECTED_PORT
+    bind_host = _resolve_bind_host()
+    port = _select_port(bind_host)
+    _SELECTED_BIND_HOST = bind_host
+    _SELECTED_PORT = port
+    return bind_host, port
+
+
+def _get_effective_port() -> int:
+    _, port = _get_selected_host_port()
+    return port
+
+
 # Network Settings Handlers
 def get_current_network_urls():
     """Get current shareable URLs."""
-    config = network_auth.get_config()
-    port = config["port"]
-    urls = generate_shareable_urls(port)
+    bind_host, port = _get_selected_host_port()
+    urls = generate_shareable_urls(port, bind_host=bind_host)
+    if not _is_bind_all(bind_host):
+        return (
+            urls["localhost"] or "Not available",
+            "Requires bind-all (DEXTALKER_BIND_ALL=1)",
+            "Requires bind-all (DEXTALKER_BIND_ALL=1)",
+            "Requires bind-all (DEXTALKER_BIND_ALL=1)"
+        )
     
     return (
         urls["localhost"] or "Not available",
@@ -63,10 +179,9 @@ def get_network_status():
     """Get network connectivity status."""
     from app.network.utils import get_tailscale_status, check_port_available
     
-    config = network_auth.get_config()
-    port = config["port"]
+    bind_host, port = _get_selected_host_port()
     
-    server_status = "● Server Running" if check_port_available(port) == False else "○ Server Stopped"
+    server_status = "● Server Running" if check_port_available(port, host=bind_host) == False else "○ Server Stopped"
     
     # Check Tailscale
     ts_status = get_tailscale_status()
@@ -78,7 +193,7 @@ def get_network_status():
         tailnet_status = "○ Tailscale Not Installed"
     
     # LAN is assumed reachable if we have a non-localhost IP
-    lan_ip = generate_shareable_urls(port)["lan"]
+    lan_ip = generate_shareable_urls(port, bind_host=bind_host)["lan"]
     lan_status = "● LAN Reachable" if lan_ip else "○ No LAN Connection"
     
     return f"{server_status}\n{lan_status}\n{tailnet_status}"
@@ -754,21 +869,27 @@ with gr.Blocks(css=STARSILK_CSS, title="DexTalker") as demo:
     btn_refresh_status.click(get_network_status, outputs=[net_connection_status])
 
 if __name__ == "__main__":
-    # Get network configuration
-    config = network_auth.get_config()
-    bind_addr = config["bind_address"]
-    port = config["port"]
+    bind_addr, port = _get_selected_host_port()
+    _SELECTED_BIND_HOST = bind_addr
+    _SELECTED_PORT = port
     
     logger.info(f"Launching DexTalker on {bind_addr}:{port}")
+    generate_shareable_urls(port, bind_host=bind_addr)
     demo.launch(server_name=bind_addr, server_port=port)
 
 # Network Settings Handlers
 
 def get_current_network_urls():
     """Get current shareable URLs."""
-    config = network_auth.get_config()
-    port = config["port"]
-    urls = generate_shareable_urls(port)
+    bind_host, port = _get_selected_host_port()
+    urls = generate_shareable_urls(port, bind_host=bind_host)
+    if not _is_bind_all(bind_host):
+        return (
+            urls["localhost"] or "Not available",
+            "Requires bind-all (DEXTALKER_BIND_ALL=1)",
+            "Requires bind-all (DEXTALKER_BIND_ALL=1)",
+            "Requires bind-all (DEXTALKER_BIND_ALL=1)"
+        )
     
     return (
         urls["localhost"] or "Not available",
@@ -814,10 +935,9 @@ def get_network_status():
     """Get network connectivity status."""
     from app.network.utils import get_tailscale_status, check_port_available
     
-    config = network_auth.get_config()
-    port = config["port"]
+    bind_host, port = _get_selected_host_port()
     
-    server_status = "● Server Running" if check_port_available(port) == False else "○ Server Stopped"
+    server_status = "● Server Running" if check_port_available(port, host=bind_host) == False else "○ Server Stopped"
     
     # Check Tailscale
     ts_status = get_tailscale_status()
@@ -829,7 +949,7 @@ def get_network_status():
         tailnet_status = "○ Tailscale Not Installed"
     
     # LAN is assumed reachable if we have a non-localhost IP
-    lan_ip = generate_shareable_urls(port)["lan"]
+    lan_ip = generate_shareable_urls(port, bind_host=bind_host)["lan"]
     lan_status = "● LAN Reachable" if lan_ip else "○ No LAN Connection"
     
     return f"{server_status}\n{lan_status}\n{tailnet_status}"
