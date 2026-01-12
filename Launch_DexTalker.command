@@ -1,7 +1,7 @@
 #!/bin/zsh
 
 # DexTalker Clickable Launcher
-# This script finds the environment and starts the launcher
+# This script activates the virtual environment and runs DexTalker
 
 # Navigate to the folder where this script is located
 BASE_DIR=$(dirname "$0")
@@ -9,14 +9,19 @@ cd "$BASE_DIR"
 
 echo "🚀 Launching DexTalker..."
 
-# Find the python executable
-if [ -f "./.venv/bin/python" ]; then
-    PYTHON_EXE="./.venv/bin/python"
-elif [ -f "./.venv311/bin/python" ]; then
-    PYTHON_EXE="./.venv311/bin/python"
-else
-    PYTHON_EXE="python3"
+# Activate virtual environment if present
+if [ -f "./.venv/bin/activate" ]; then
+    source "./.venv/bin/activate"
+elif [ -f "./.venv311/bin/activate" ]; then
+    source "./.venv311/bin/activate"
 fi
 
-# Run the launcher
-$PYTHON_EXE app/launcher_simple.py
+# Uncomment for share mode
+# export DEXTALKER_BIND_ALL=1
+
+# Run DexTalker
+if command -v python >/dev/null 2>&1; then
+    python run.py
+else
+    python3 run.py
+fi
