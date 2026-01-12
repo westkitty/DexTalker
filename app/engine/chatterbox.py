@@ -56,6 +56,7 @@ class ChatterboxEngine:
         self._provider_name = None
         self._provider_device = None
         self._provider_sample_rate = None
+        self._provider_error = None
         self._lock = threading.Lock()
         self._init_lock = None
         self._init_lock_loop = None
@@ -81,6 +82,7 @@ class ChatterboxEngine:
                 self._provider_name = None
                 self._provider_device = None
                 self._provider_sample_rate = None
+                self._provider_error = None
 
                 try:
                     module = importlib.import_module("chatterbox")
@@ -94,20 +96,39 @@ class ChatterboxEngine:
                         else:
                             device = "cpu"
                         logger.info("Loading Chatterbox models on %s...", device)
-                        self._provider = provider_cls.from_pretrained(device=device)
-                        self._provider_name = "chatterbox"
-                        self._provider_device = device
-                        self._provider_sample_rate = getattr(self._provider, "sr", None)
-                except ImportError:
-                    pass
+                        try:
+                            self._provider = provider_cls.from_pretrained(device=device)
+                            self._provider_name = "chatterbox"
+                            self._provider_device = device
+                            self._provider_sample_rate = getattr(self._provider, "sr", None)
+                        except Exception as e:
+                            self._provider_error = f"ChatterboxTTS.from_pretrained failed on {device}: {e}"
+                            logger.exception("Chatterbox init failed on %s", device)
+                            if device == "mps":
+                                logger.info("Retrying Chatterbox on cpu...")
+                                try:
+                                    self._provider = provider_cls.from_pretrained(device="cpu")
+                                    self._provider_name = "chatterbox"
+                                    self._provider_device = "cpu"
+                                    self._provider_sample_rate = getattr(self._provider, "sr", None)
+                                    self._provider_error = None
+                                except Exception as cpu_err:
+                                    self._provider_error = f"ChatterboxTTS.from_pretrained failed on cpu: {cpu_err}"
+                                    logger.exception("Chatterbox init failed on cpu")
+                except ImportError as e:
+                    self._provider_error = f"Failed to import chatterbox: {e}"
+                    logger.exception("Chatterbox import failed")
                 except Exception as e:
-                    logger.warning("Chatterbox init failed, falling back. Error: %s", e)
+                    self._provider_error = f"Unexpected chatterbox error: {e}"
+                    logger.exception("Unexpected Chatterbox init error")
 
                 if self._provider is None:
                     for module_name in ("chatterbox_tts",):
                         try:
                             module = importlib.import_module(module_name)
-                        except ImportError:
+                        except ImportError as e:
+                            self._provider_error = f"Failed to import {module_name}: {e}"
+                            logger.exception("Import failed for %s", module_name)
                             continue
                         provider_cls = getattr(module, "TTS", None)
                         if provider_cls is not None:
@@ -117,7 +138,11 @@ class ChatterboxEngine:
                             break
 
                 if self._provider is None:
-                    logger.warning("Chatterbox library not found or failed to load. Running in fallback audio mode.")
+                    suffix = f" Last error: {self._provider_error}" if self._provider_error else ""
+                    logger.warning(
+                        "Chatterbox library not found or failed to load. Running in fallback audio mode.%s",
+                        suffix
+                    )
 
                 # Simulating load time for realism/verification
                 await asyncio.sleep(0.5)
@@ -125,6 +150,14 @@ class ChatterboxEngine:
                 self.is_loaded = True
                 msg = "Chatterbox Engine initialized successfully."
                 logger.info(msg)
+                status = self.get_engine_status()
+                logger.info(
+                    "CHATTERBOX_AVAILABLE=%s provider=%s device=%s error=%s",
+                    not status["fallback_mode"],
+                    status["provider"],
+                    status["device"],
+                    status.get("error") or "none",
+                )
                 return True, msg
             except Exception as e:
                 msg = f"Failed to initialize Chatterbox: {str(e)}"
@@ -377,6 +410,7 @@ class ChatterboxEngine:
             "device": self._provider_device or "N/A",
             "fallback_mode": self._provider is None,
             "available_voices_count": len(self.get_available_voices()),
+            "error": self._provider_error,
         }
 
     async def add_voice(self, voice_name: str, voice_file: str) -> Tuple[bool, str]:

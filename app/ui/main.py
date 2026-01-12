@@ -279,11 +279,24 @@ def get_engine_status_display():
     provider = status["provider"]
     device = status["device"]
     fallback = status["fallback_mode"]
+    error = status.get("error")
     
+    if not status["initialized"]:
+        return "⏳ **Initializing Chatterbox...**"
+
     if fallback:
+        if error:
+            summary = error if len(error) <= 140 else f"{error[:137]}..."
+            return f"⚠️ **Fallback Mode** (Chatterbox unavailable: {summary})"
         return "⚠️ **Fallback Mode** (Chatterbox not available)"
     else:
         return f"✅ **{provider}** on `{device}` | {status['available_voices_count']} voices"
+
+
+async def init_engine_status():
+    """Initialize the engine on first load and return status text."""
+    await engine.initialize()
+    return get_engine_status_display()
 
 
 def update_text_stats(text):
@@ -425,7 +438,7 @@ def refresh_voices_handler():
 
 with gr.Blocks(css=STARSILK_CSS, title="DexTalker") as demo:
     gr.Markdown("# 🎙️ DexTalker")
-    gr.Markdown(get_engine_status_display())
+    engine_status_md = gr.Markdown("⏳ **Initializing Chatterbox...**")
     gr.Markdown("💡 **Quick Tip**: Press Ctrl/Cmd+Enter in the text box to generate speech")
 
     with gr.Tabs():
@@ -867,6 +880,8 @@ with gr.Blocks(css=STARSILK_CSS, title="DexTalker") as demo:
     
     btn_regen_token.click(regenerate_access_token_handler, outputs=[net_token_status])
     btn_refresh_status.click(get_network_status, outputs=[net_connection_status])
+
+    demo.load(init_engine_status, outputs=engine_status_md)
 
 if __name__ == "__main__":
     bind_addr, port = _get_selected_host_port()
