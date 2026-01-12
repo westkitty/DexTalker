@@ -8,6 +8,8 @@ import signal
 from pathlib import Path
 import webview
 
+from launcher_utils import get_configured_port
+
 # Constants
 BASE_DIR = Path(__file__).resolve().parent.parent
 PYTHON_EXE = sys.executable
@@ -18,15 +20,20 @@ class LauncherAPI:
         self.process = None
         self.desktop_process = None
         self.is_starting = False
+        self.port = get_configured_port(BASE_DIR)
 
     def get_status(self):
         if self.process and self.process.poll() is None:
-            return {"status": "Online", "color": "#00ffcc", "url": "http://localhost:7860"}
+            return {
+                "status": "Online",
+                "color": "#00ffcc",
+                "url": f"http://localhost:{self.port}"
+            }
         return {"status": "Offline", "color": "#ff4b2b", "url": ""}
 
     def launch_ui(self):
         import webbrowser
-        webbrowser.open("http://localhost:7860")
+        webbrowser.open(f"http://localhost:{self.port}")
         return True
 
     def launch_desktop(self):
@@ -46,6 +53,7 @@ class LauncherAPI:
             return False
             
         self.is_starting = True
+        self.port = get_configured_port(BASE_DIR)
         run_script = BASE_DIR / "run.py"
         
         # Kill existing if any
@@ -64,7 +72,11 @@ class LauncherAPI:
 
     def clean_ports(self):
         try:
-            subprocess.run("lsof -ti:7860 | xargs kill -9", shell=True, stderr=subprocess.DEVNULL)
+            subprocess.run(
+                f"lsof -ti:{self.port} | xargs kill -9",
+                shell=True,
+                stderr=subprocess.DEVNULL
+            )
         except:
             pass
 

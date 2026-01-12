@@ -14,6 +14,7 @@ sys.path.append(str(BASE_DIR))
 import webview
 
 from app.ui.main import demo
+from launcher_utils import get_configured_port
 
 
 def _port_open(host: str, port: int) -> bool:
@@ -138,7 +139,7 @@ def _parse_args():
 def main():
     args = _parse_args()
     started_server = False
-    preferred_port = int(os.environ.get("DEXTALKER_PORT", "7860"))
+    preferred_port = get_configured_port(BASE_DIR)
     port = preferred_port
 
     if _port_open("127.0.0.1", port):

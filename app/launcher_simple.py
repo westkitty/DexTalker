@@ -11,8 +11,10 @@ import socket
 import webbrowser
 from pathlib import Path
 
+from launcher_utils import get_configured_port
+
 BASE_DIR = Path(__file__).resolve().parent.parent
-PORT = 7860
+PORT = get_configured_port(BASE_DIR)
 
 def check_port(port):
     """Check if server is running on port"""

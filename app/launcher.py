@@ -10,6 +10,8 @@ import threading
 from pathlib import Path
 import sys
 
+from launcher_utils import get_configured_port
+
 class DexTalkerLauncher:
     def __init__(self, root):
         self.root = root
@@ -21,6 +23,7 @@ class DexTalkerLauncher:
         # Paths - Adjusted for DexTalker structure
         # Assumes this script is in DexTalker/app/launcher.py
         self.base_dir = Path(__file__).parent.parent.resolve()
+        self.port = get_configured_port(self.base_dir)
         self.run_script = self.base_dir / "run.py"
         self.log_path = self.base_dir / "launcher.log"
         self.log_handle = None
@@ -95,6 +98,7 @@ class DexTalkerLauncher:
 
     def start_engine(self):
         try:
+            self.port = get_configured_port(self.base_dir)
             self.clean_ports()
             self.is_running = True
             
@@ -118,8 +122,8 @@ class DexTalkerLauncher:
                 start_new_session=True
             )
 
-            if self._wait_for_port("127.0.0.1", 7860, timeout=45):
-                self._set_status("Status: Online (http://localhost:7860)", "#00ffcc")
+            if self._wait_for_port("127.0.0.1", self.port, timeout=45):
+                self._set_status(f"Status: Online (http://localhost:{self.port})", "#00ffcc")
             else:
                 self._set_status("Status: Failed to start (see launcher.log)", "#ff4b2b")
                 self.is_running = False
@@ -130,7 +134,7 @@ class DexTalkerLauncher:
 
     def open_ui(self):
         import webbrowser
-        webbrowser.open("http://localhost:7860")
+        webbrowser.open(f"http://localhost:{self.port}")
 
     def open_desktop_window(self):
         if self.desktop_process and self.desktop_process.poll() is None:
@@ -161,7 +165,11 @@ class DexTalkerLauncher:
 
     def clean_ports(self):
         try:
-            subprocess.run("lsof -ti:7860 | xargs kill -9", shell=True, stderr=subprocess.DEVNULL)
+            subprocess.run(
+                f"lsof -ti:{self.port} | xargs kill -9",
+                shell=True,
+                stderr=subprocess.DEVNULL
+            )
         except:
             pass
 
