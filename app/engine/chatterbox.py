@@ -89,12 +89,9 @@ class ChatterboxEngine:
                     provider_cls = getattr(module, "ChatterboxTTS", None)
                     if provider_cls is not None:
                         import torch
-                        if torch.cuda.is_available():
-                            device = "cuda"
-                        elif torch.backends.mps.is_available():
-                            device = "mps"
-                        else:
-                            device = "cpu"
+                        # Force CPU mode to avoid slow MPS loading (60+ seconds)
+                        # MPS causes extremely slow model initialization
+                        device = "cpu"
                         logger.info("Loading Chatterbox models on %s...", device)
                         try:
                             self._provider = provider_cls.from_pretrained(device=device)
@@ -104,17 +101,6 @@ class ChatterboxEngine:
                         except Exception as e:
                             self._provider_error = f"ChatterboxTTS.from_pretrained failed on {device}: {e}"
                             logger.exception("Chatterbox init failed on %s", device)
-                            if device == "mps":
-                                logger.info("Retrying Chatterbox on cpu...")
-                                try:
-                                    self._provider = provider_cls.from_pretrained(device="cpu")
-                                    self._provider_name = "chatterbox"
-                                    self._provider_device = "cpu"
-                                    self._provider_sample_rate = getattr(self._provider, "sr", None)
-                                    self._provider_error = None
-                                except Exception as cpu_err:
-                                    self._provider_error = f"ChatterboxTTS.from_pretrained failed on cpu: {cpu_err}"
-                                    logger.exception("Chatterbox init failed on cpu")
                 except ImportError as e:
                     self._provider_error = f"Failed to import chatterbox: {e}"
                     logger.exception("Chatterbox import failed")
